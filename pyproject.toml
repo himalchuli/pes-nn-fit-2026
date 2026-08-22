@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+# Consider changing the name to something specific to your research
+name = "pes-nn-fit-2026" 
+version = "0.1.0"
+description = "Neural network fitting for potential energy surfaces of small molecules"
+dependencies = [
+    "numpy==2.5.2",
+    "optuna==4.9.0",
+    "pandas==3.0.5",
+    "PyYAML==6.0.3",
+    "scikit-learn==1.9.0", 
+    "scipy==1.18.0",
+    "torch==2.13.0",
+    "torch_levenberg_marquardt==1.2.3"
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["*"]

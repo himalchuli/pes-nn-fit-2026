@@ -1,0 +1,10 @@
+adjustText==1.4.0
+matplotlib==3.11.1
+numpy==2.5.2
+optuna==4.9.0
+pandas==3.0.5
+PyYAML==6.0.3
+scikit_learn==1.9.0
+scipy==1.18.0
+torch==2.13.0
+torch_levenberg_marquardt==1.2.3

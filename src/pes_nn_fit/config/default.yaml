@@ -1,0 +1,72 @@
+# Data
+data:
+  data_file: # path to the main dataset used for training and testing, relative path from main dir
+  data_type: # options: pes-learn, molpro, psi4 (more in dataset.py:__init__)
+  # paths to save and load splitted datasets, relative path from experiment dir
+  trainset_file: data/trainset.npy
+  valset_file: data/valset.npy
+  testset_file: data/testset.npy
+  # path to save/load model, relative path from experiment dir
+  model_file: models/model.pt
+
+dataset: 
+  split_type: random # options: random, quantiles, fps, kmeans; more in dataset.py
+  split_ratios: [0.70, 0.15, 0.15] # train/val/test
+
+# Runtime
+runtime:
+  dtype: float64 # options: float64, float32
+  seed: 42
+
+# Hyperparameters
+hyperparams:
+  preprocess:
+    canonicalize_geom: False # select symmetry unique points from the dataset, depends on molecule
+    molecule: null # required only if canonicalize_geom = True
+
+    morse_transform: True
+    morse_param: 1.0 # required only if morse_transform = true
+
+    pip_transform: True
+
+    # Standardization / scaling
+    scaler_data: std # options: std, minmax01, minmax11
+    scaler_target: std # options: std, minmax01, minmax11
+
+  model:
+    # Architecture
+    layers: "32,32" # must follow this convention "x,y,z..."
+    activation: tanh # choices: tanh
+
+  trainer:
+    # Adam training algorithm
+    adam:
+      train: True # adam training before lm training?
+      lr: 0.001 # initial learning rate
+      batch_size: 64
+      max_epoch: 100
+
+    # Levenberg–Marquardt algorithm
+    lm:
+      train: True
+      lr: 1.0
+      batch_size: null # int, if null the use the whole training set
+      max_epoch: 30
+      use_vmap: True
+      attempts_per_step: 10
+      solve_method: 'qr' # options: 'qr','cholesky','solve' (desc. in tlm)
+
+    # Early stopping configuration
+    early_stopping:
+      enabled: False
+      patience: 20 # required only if enabled is True
+
+optuna: # config for hyperparameter search
+  study_name: study
+  n_trials: 10
+  timeout: 1800 # in minutes, end the search after
+  prune: 
+    pruner: "median" # options: in optuna
+    n_startup_trials: 3 # number of initial trials without pruning
+    n_warmup_steps: 30 # steps before assesing pruning
+    interval_steps: 10 # decides to prune each interval_steps
