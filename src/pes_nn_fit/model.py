@@ -1,11 +1,12 @@
+import copy
+import logging
+import os
+
 import torch
-import torch.nn as nn
-import torch.optim as optim
+from torch import nn, optim
+
 from .dataset import Dataset
 from .preprocess import Preprocessor
-import logging
-import copy
-import os
 
 logger = logging.getLogger(__name__)
 

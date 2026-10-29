@@ -1,0 +1,57 @@
+# Data 
+# other data files
+data: 
+  # absolute (from main directory)
+  data_file: '../../data/water.csv'
+  data_type: 'pes-learn'
+
+dataset:
+  split_type: fps
+
+# Hyperparameters 
+hyperparams:
+
+## Preprocessing
+  preprocess:
+### Canonicalization
+    canonicalize_geom: True
+    molecule: 'h2o'
+### Morse
+    morse_transform: True
+    morse_param: 
+      dist: float
+      low: 0.001
+      high: 1
+      log: True
+### Pip
+    pip_transform: True
+## Model 
+
+## Training
+  model:
+    layers: 
+      dist: categorical
+      choices: ["8,8","16,16"]
+
+### LM
+  trainer:
+    lm:
+      train: True
+      max_epoch: 100
+      lr:
+        dist: float
+        low: 0.001
+        high: 1
+        log: True
+    adam:
+      train: True
+      max_epoch: 100
+
+    early_stopping:
+      enabled: true
+
+# Optuna 
+optuna:
+  n_trials: 10
+  timeout: 1800
+  

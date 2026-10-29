@@ -1,6 +1,5 @@
 # .gitignore
 venv/
-scripts/
 env/
 __pycache__/
 *.pyc

@@ -1,10 +1,17 @@
-import numpy as np
-import os
-from sklearn.model_selection import train_test_split
-from sklearn.cluster import KMeans
 import logging
-from src.utils.helpers import hartree2cm1, hartree2ev, au2angstrom
-from src.utils.helpers import interatom2zmatrix, zmatrix2interatom
+import os
+
+import numpy as np
+from sklearn.cluster import KMeans
+from sklearn.model_selection import train_test_split
+
+from pes_nn_fit.utils.helpers import (
+    au2angstrom,
+    hartree2cm1,
+    hartree2ev,
+    interatom2zmatrix,
+    zmatrix2interatom,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -175,7 +182,7 @@ class Dataset:
         """
         Convert interatomic distance representation to Z-matrix coordinates.
 
-        Uses ``src.utils.helpers.interatom2zmatrix`` to perform the transformation
+        Uses ``pes_nn_fit.utils.helpers.interatom2zmatrix`` to perform the transformation
         from interatomic distances to internal (Z-matrix) coordinates.
 
         Parameters
@@ -196,7 +203,7 @@ class Dataset:
         """
         Convert Z-matrix coordinates to interatomic distance representation.
 
-        Uses `src.utils.helpers.zmatrix2interatom` to transform internal (Z-matrix) coordinates
+        Uses `pes_nn_fit.utils.helpers.zmatrix2interatom` to transform internal (Z-matrix) coordinates
         into interatomic distances.
 
         Parameters
@@ -217,7 +224,7 @@ class Dataset:
         """
         Convert energy values from Hartree to inverse centimeters (cm⁻¹).
 
-        Uses `src.utils.helpers.hartree2cm1` to transform the energy column of the dataset
+        Uses `pes_nn_fit.utils.helpers.hartree2cm1` to transform the energy column of the dataset
         and updates the target accordingly.
 
         Returns
@@ -233,7 +240,7 @@ class Dataset:
         """
         Convert energy values from Hartree to electronvolts (eV).
 
-        Uses `src.utils.helpers.hartree2ev` to transform the energy column of the dataset
+        Uses `pes_nn_fit.utils.helpers.hartree2ev` to transform the energy column of the dataset
         and updates the target accordingly.
 
         Returns
@@ -249,7 +256,7 @@ class Dataset:
         """
         Convert interatomic distances from atomic units (Bohr) to Angstrom.
 
-        Uses `src.utils.helpers.au2angstrom` to transform distance values and updates
+        Uses `pes_nn_fit.utils.helpers.au2angstrom` to transform distance values and updates
         the dataset accordingly.
 
         Returns
@@ -267,59 +274,117 @@ class Dataset:
         self.target = self.dataset[:, -1].reshape(-1, 1)
         return self
 
-    def split_random(self, val_size=0.1, test_size=0.1):
+    # ------------------------------------------------------------------
+    # Splitting
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _validate_split_sizes(train_size, val_size, test_size) -> float:
         """
-        Splits the dataset into train set, validation set and test set using random split.
+        Validate relative split sizes.
 
-        Parameters
-        ----------
-        val_size : float
-            Relative size of the validation set. Must be in the interval [0, 1].
-
-        test_size : float
-            Relative size of the test set. Must be in the interval [0, 1].
+        ``val_size=None`` is treated as ``0`` (no validation set).
 
         Returns
         -------
-        trainset : Dataset
-            Training subset.
+        float
+            The validated ``val_size`` (``0.0`` if it was ``None``).
 
-        valset : Dataset
-            Validation subset.
+        Raises
+        ------
+        ValueError
+            If a size is outside [0, 1], if ``train_size`` or ``test_size`` is
+            not positive, or if the three sizes do not sum to 1.
+        """
+        if val_size is None:
+            val_size = 0.0
 
-        testset : Dataset
-            Test subset.
+        for name, value in (
+            ("train_size", train_size),
+            ("val_size", val_size),
+            ("test_size", test_size),
+        ):
+            if not 0.0 <= value <= 1.0:
+                raise ValueError(f"{name} must be in the interval [0, 1], got {value}.")
+        if train_size <= 0.0:
+            raise ValueError("train_size must be greater than 0.")
+        if test_size <= 0.0:
+            raise ValueError("test_size must be greater than 0.")
+
+        total = train_size + val_size + test_size
+        if not np.isclose(total, 1.0, rtol=0.0, atol=1e-8):
+            raise ValueError(
+                f"train_size + val_size + test_size must sum to 1, got {total} "
+                f"({train_size} + {val_size} + {test_size})."
+            )
+        return float(val_size)
+
+    @staticmethod
+    def _split_array(array, val_size, test_size, seed):
+        """
+        Randomly split ``array`` into (train, val, test) or, if ``val_size == 0``,
+        into (train, test).
+        """
+        if val_size == 0:
+            return tuple(train_test_split(array, test_size=test_size, random_state=seed))
+        trainset, helpset = train_test_split(
+            array, test_size=val_size + test_size, random_state=seed
+        )
+        valset, testset = train_test_split(
+            helpset, test_size=test_size / (val_size + test_size), random_state=seed
+        )
+        return trainset, valset, testset
+
+    def _wrap(self, parts):
+        """Wrap each array in ``parts`` into a Dataset."""
+        return tuple(Dataset(array=part, seed=self.seed) for part in parts)
+
+    @staticmethod
+    def _log_split(name, parts):
+        labels = ("Train", "Val", "Test") if len(parts) == 3 else ("Train", "Test")
+        sizes = " | ".join(f"{label}: {len(part)}" for label, part in zip(labels, parts))
+        logger.info("%s split completed. %s", name, sizes)
+
+    def split_random(self, train_size=0.8, val_size=0.1, test_size=0.1):
+        """
+        Split the dataset into train/validation/test subsets using a random split.
+
+        Parameters
+        ----------
+        train_size : float, default=0.8
+            Relative size of the training set. Must be in (0, 1].
+
+        val_size : float or None, default=0.1
+            Relative size of the validation set. Must be in [0, 1].
+            If ``None`` or ``0``, no validation set is created.
+
+        test_size : float, default=0.1
+            Relative size of the test set. Must be in (0, 1].
+
+        Returns
+        -------
+        tuple of Dataset
+            ``(trainset, valset, testset)``, or ``(trainset, testset)`` if
+            ``val_size`` is ``None`` or ``0``.
+
+        Raises
+        ------
+        ValueError
+            If ``train_size + val_size + test_size`` does not equal 1.
 
         Notes
         -----
         Splitting is performed using ``sklearn.model_selection.train_test_split``.
         """
+        val_size = self._validate_split_sizes(train_size, val_size, test_size)
+        parts = self._split_array(self.dataset, val_size, test_size, self.seed)
+        self._log_split("Random", parts)
+        return self._wrap(parts)
 
-        trainset, helpset = train_test_split(
-            self.dataset, test_size=test_size + val_size, random_state=self.seed
-        )
-        valset, testset = train_test_split(
-            helpset,
-            test_size=test_size / (test_size + val_size),
-            random_state=self.seed,
-        )
-
-        logger.info(
-            "Random split completed. Train: %d | Val: %d | Test: %d",
-            len(trainset),
-            len(valset),
-            len(testset),
-        )
-
-        return (
-            Dataset(array=trainset, seed=self.seed),
-            Dataset(array=valset, seed=self.seed),
-            Dataset(array=testset, seed=self.seed),
-        )
-
-    def split_quantiles(self, val_size=0.1, test_size=0.1, n_quantiles=10):
+    def split_quantiles(
+        self, train_size=0.8, val_size=0.1, test_size=0.1, n_quantiles=10
+    ):
         """
-        Split the dataset into train/validation/test subsets using target quantiles.
+        Split the dataset into subsets using target quantiles.
 
         The samples are first sorted by the target value and divided into
         ``n_quantiles`` equally sized bins. Each bin is then split independently,
@@ -328,27 +393,29 @@ class Dataset:
 
         Parameters
         ----------
-        val_size : float, default=0.1
-            Relative size of the validation subset within the full dataset.
-            Must be in the interval [0, 1].
+        train_size : float, default=0.8
+            Relative size of the training set. Must be in (0, 1].
+
+        val_size : float or None, default=0.1
+            Relative size of the validation set. Must be in [0, 1].
+            If ``None`` or ``0``, no validation set is created.
 
         test_size : float, default=0.1
-            Relative size of the test subset within the full dataset.
-            Must be in the interval [0, 1].
+            Relative size of the test set. Must be in (0, 1].
 
         n_quantiles : int, default=10
             Number of target quantile bins used before splitting.
 
         Returns
         -------
-        trainset : Dataset
-            Training subset assembled from all quantile splits.
+        tuple of Dataset
+            ``(trainset, valset, testset)``, or ``(trainset, testset)`` if
+            ``val_size`` is ``None`` or ``0``.
 
-        valset : Dataset
-            Validation subset assembled from all quantile splits.
-
-        testset : Dataset
-            Test subset assembled from all quantile splits.
+        Raises
+        ------
+        ValueError
+            If ``train_size + val_size + test_size`` does not equal 1.
 
         Notes
         -----
@@ -357,43 +424,23 @@ class Dataset:
         varying random seed is used per quantile to maintain reproducibility
         while avoiding identical partitions.
         """
+        val_size = self._validate_split_sizes(train_size, val_size, test_size)
 
-        X = self.data
-        y = self.target
-        idx_sort = y.ravel().argsort()
-        dataset = np.column_stack((X, y))[idx_sort]
-        splits = np.array_split(dataset, n_quantiles)
+        idx_sort = self.target.ravel().argsort()
+        dataset = np.column_stack((self.data, self.target))[idx_sort]
+        bins = np.array_split(dataset, n_quantiles)
 
-        trainset = []
-        valset = []
-        testset = []
+        per_bin = []
         seed = self.seed
-        for split in splits:
-            trainset_split, helpset = train_test_split(
-                split, test_size=test_size + val_size, random_state=seed
-            )
-            valset_split, testset_split = train_test_split(
-                helpset, test_size=test_size / (test_size + val_size), random_state=seed
-            )
-            trainset.append(trainset_split)
-            valset.append(valset_split)
-            testset.append(testset_split)
-            seed += 1  # we want use different seed for every quantile but still have replicable results
+        for bin_ in bins:
+            per_bin.append(self._split_array(bin_, val_size, test_size, seed))
+            seed += 1  # different seed for every quantile but still replicable
 
-        logger.info(
-            "Quantile split completed. Train: %d | Val: %d | Test: %d",
-            len(trainset),
-            len(valset),
-            len(testset),
-        )
+        parts = tuple(np.vstack(group) for group in zip(*per_bin))
+        self._log_split("Quantile", parts)
+        return self._wrap(parts)
 
-        return (
-            Dataset(array=np.vstack(trainset), seed=self.seed),
-            Dataset(array=np.vstack(valset), seed=self.seed),
-            Dataset(array=np.vstack(testset), seed=self.seed),
-        )
-
-    def split_fps(self, val_size: float = 0.1, test_size: float = 0.1) -> float:
+    def split_fps(self, train_size=0.8, val_size=0.1, test_size=0.1):
         """
         Split the dataset using farthest point sampling (FPS).
 
@@ -406,24 +453,26 @@ class Dataset:
 
         Parameters
         ----------
-        val_size : float, default=0.1
-            Relative size of the validation subset within the full dataset.
-            Must be in the interval [0, 1].
+        train_size : float, default=0.8
+            Relative size of the training set. Must be in (0, 1].
+
+        val_size : float or None, default=0.1
+            Relative size of the validation set. Must be in [0, 1].
+            If ``None`` or ``0``, all remaining samples form the test set.
 
         test_size : float, default=0.1
-            Relative size of the test subset within the full dataset.
-            Must be in the interval [0, 1].
+            Relative size of the test set. Must be in (0, 1].
 
         Returns
         -------
-        trainset : Dataset
-            Training subset selected using farthest point sampling.
+        tuple of Dataset
+            ``(trainset, valset, testset)``, or ``(trainset, testset)`` if
+            ``val_size`` is ``None`` or ``0``.
 
-        valset : Dataset
-            Validation subset sampled from the remaining data.
-
-        testset : Dataset
-            Test subset sampled from the remaining data.
+        Raises
+        ------
+        ValueError
+            If ``train_size + val_size + test_size`` does not equal 1.
 
         Notes
         -----
@@ -440,6 +489,7 @@ class Dataset:
         accurate calculations of potential energy surfaces and vibrational
         levels. *J. Chem. Phys.* 2017, 146, 244108.
         """
+        val_size = self._validate_split_sizes(train_size, val_size, test_size)
 
         dataset = self.dataset
         X = self.data
@@ -461,8 +511,8 @@ class Dataset:
 
         min_dists = np.minimum(first_dists, distances(X[idx_far]))
 
-        n_train = int(len(dataset) * (1 - (val_size + test_size)))
-        for i in range(2, n_train):
+        n_train = int(len(dataset) * train_size)
+        for _ in range(2, n_train):
             idx_new = np.argmax(min_dists)
             train_idxs.append(idx_new)
 
@@ -472,26 +522,23 @@ class Dataset:
         train_idxs = np.asarray(train_idxs)
         trainset = dataset[train_idxs]
         helpset = np.delete(dataset, train_idxs, axis=0)
-        valset, testset = train_test_split(
-            helpset,
-            test_size=test_size / (test_size + val_size),
-            random_state=self.seed,
-        )
 
-        logger.info(
-            "FPS split completed. Train: %d | Val: %d | Test: %d",
-            len(trainset),
-            len(valset),
-            len(testset),
-        )
+        if val_size == 0:
+            parts = (trainset, helpset)
+        else:
+            valset, testset = train_test_split(
+                helpset,
+                test_size=test_size / (test_size + val_size),
+                random_state=self.seed,
+            )
+            parts = (trainset, valset, testset)
 
-        return (
-            Dataset(array=trainset, seed=self.seed),
-            Dataset(array=valset, seed=self.seed),
-            Dataset(array=testset, seed=self.seed),
-        )
+        self._log_split("FPS", parts)
+        return self._wrap(parts)
 
-    def split_kmeans(self, val_size=0.1, test_size=0.1, n_clusters="default"):
+    def split_kmeans(
+        self, train_size=0.8, val_size=0.1, test_size=0.1, n_clusters="default"
+    ):
         """
         Split the dataset using k-means clustering.
 
@@ -502,13 +549,15 @@ class Dataset:
 
         Parameters
         ----------
-        val_size : float, default=0.1
-            Relative size of the validation subset within the full dataset.
-            Must be in the interval [0, 1].
+        train_size : float, default=0.8
+            Relative size of the training set. Must be in (0, 1].
+
+        val_size : float or None, default=0.1
+            Relative size of the validation set. Must be in [0, 1].
+            If ``None`` or ``0``, no validation set is created.
 
         test_size : float, default=0.1
-            Relative size of the test subset within the full dataset.
-            Must be in the interval [0, 1].
+            Relative size of the test set. Must be in (0, 1].
 
         n_clusters : int or 'default', default='default'
             Number of clusters used for k-means partitioning. If ``'default'``,
@@ -516,14 +565,14 @@ class Dataset:
 
         Returns
         -------
-        trainset : Dataset
-            Training subset assembled from all cluster splits.
+        tuple of Dataset
+            ``(trainset, valset, testset)``, or ``(trainset, testset)`` if
+            ``val_size`` is ``None`` or ``0``.
 
-        valset : Dataset
-            Validation subset assembled from all cluster splits.
-
-        testset : Dataset
-            Test subset assembled from all cluster splits.
+        Raises
+        ------
+        ValueError
+            If ``train_size + val_size + test_size`` does not equal 1.
 
         Notes
         -----
@@ -533,56 +582,63 @@ class Dataset:
         containing fewer than three samples are assigned entirely to the
         training subset to avoid unstable splits.
         """
+        val_size = self._validate_split_sizes(train_size, val_size, test_size)
 
         if n_clusters == "default":
-            n_clusters = max(2, len(self) // 30)  # recommended by chatgpt
+            n_clusters = max(2, len(self) // 30)
         # later can be clustering also applied to energies but for now only for params
-        X = self.data
         dataset = self.dataset
         kmeans = KMeans(n_clusters=n_clusters, n_init=20, random_state=self.seed)
-        labels = kmeans.fit_predict(X)
+        labels = kmeans.fit_predict(self.data)
 
-        trainset = []
-        valset = []
-        testset = []
+        n_parts = 2 if val_size == 0 else 3
+        empty = np.empty((0, dataset.shape[1]))
+
+        per_cluster = []
         for cluster_label in range(n_clusters):
             idx_label = np.where(labels == cluster_label)[0]
             # skip if there aren't any points in the cluster
             if len(idx_label) == 0:
                 continue
-            cluster = np.atleast_2d(
-                dataset[idx_label]
-            )  # ensures 1d array will also vstack
-            # If cluster too small → put all in train
+            cluster = np.atleast_2d(dataset[idx_label])
+            # If cluster too small -> put all in train
             if len(idx_label) < 3:
-                trainset.append(cluster)
+                per_cluster.append((cluster,) + (empty,) * (n_parts - 1))
                 continue
-            trainset_split, helpset = train_test_split(
-                cluster, test_size=test_size + val_size, random_state=self.seed
+            per_cluster.append(
+                self._split_array(cluster, val_size, test_size, self.seed)
             )
-            valset_split, testset_split = train_test_split(
-                helpset,
-                test_size=test_size / (test_size + val_size),
-                random_state=self.seed,
-            )
-            trainset.append(trainset_split)
-            valset.append(valset_split)
-            testset.append(testset_split)
 
-        logger.info(
-            "K-means clustering split completed. Train: %d | Val: %d | Test: %d",
-            len(trainset),
-            len(valset),
-            len(testset),
-        )
+        parts = tuple(np.vstack(group) for group in zip(*per_cluster))
+        self._log_split("K-means clustering", parts)
+        return self._wrap(parts)
 
-        return (
-            Dataset(array=np.vstack(trainset), seed=self.seed),
-            Dataset(array=np.vstack(valset), seed=self.seed),
-            Dataset(array=np.vstack(testset), seed=self.seed),
-        )
+    def split(
+        self,
+        train_size=0.8,
+        val_size=0.1,
+        test_size=0.1,
+        split_type="random",
+    ):
+        """
+        Split the dataset using the chosen strategy.
 
-    def split(self, val_size=0.1, test_size=0.1, split_type="random"):
+        Parameters
+        ----------
+        train_size, val_size, test_size : float
+            Relative sizes of the subsets. They must sum to 1, otherwise a
+            ``ValueError`` is raised. If ``val_size`` is ``None`` or ``0``,
+            only train and test sets are returned.
+
+        split_type : {'random', 'quantiles', 'fps', 'kmeans'}, default='random'
+            Splitting strategy.
+
+        Returns
+        -------
+        tuple of Dataset
+            ``(trainset, valset, testset)``, or ``(trainset, testset)`` if
+            ``val_size`` is ``None`` or ``0``.
+        """
         split_methods = {
             "random": self.split_random,
             "quantiles": self.split_quantiles,
@@ -590,7 +646,8 @@ class Dataset:
             "kmeans": self.split_kmeans,
         }
 
-        try:
-            return split_methods[split_type](val_size, test_size)
-        except KeyError:
+        if split_type not in split_methods:
             raise ValueError(f"Invalid split_type: {split_type}")
+        return split_methods[split_type](
+            train_size=train_size, val_size=val_size, test_size=test_size
+        )

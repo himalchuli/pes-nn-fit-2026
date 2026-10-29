@@ -1,11 +1,14 @@
 from pathlib import Path
-import yaml
-import torch
-from src.utils.helpers import merge_config
-from src.utils.logger import setup_logger
-from src.utils.seed import set_seed
 
-DEFAULT_CONFIG_PATH = "./src/config/default.yaml"
+import torch
+import yaml
+
+from pes_nn_fit.utils.helpers import merge_config
+from pes_nn_fit.utils.logger import setup_logger
+from pes_nn_fit.utils.seed import set_seed
+
+DEFAULT_CONFIG_PATH = "./src/pes_nn_fit/config/default.yaml"
+
 
 def setup_experiment(config_path: str):
     """Load config merge with default, set seed, initialise logger and device."""

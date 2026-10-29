@@ -1,5 +1,8 @@
-import numpy as np
+import os
 from typing import Union
+
+import numpy as np
+import yaml
 
 # region Config
 
@@ -73,7 +76,6 @@ def sample_config(trial, node, prefix: str = ""):
 
     # distribution node
     if isinstance(node, dict) and "dist" in node:
-
         name = prefix
         dist = node["dist"]
 
@@ -113,6 +115,16 @@ def unflatten_params(flat: dict) -> dict:
             d = d.setdefault(part, {})
         d[parts[-1]] = value
     return nested
+
+
+def load_default_config():
+    # Current location: pes-nn-fit-2026/src/config/default.yaml
+    # This automatically finds the config file relative to this helper script
+    base_dir = os.path.dirname(os.path.dirname(__file__))
+    config_path = os.path.join(base_dir, "config", "default.yaml")
+
+    with open(config_path, "r") as f:
+        return yaml.safe_load(f)
 
 
 # endregion

@@ -1,7 +1,8 @@
-import numpy as np
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
 import logging
 from typing import Union
+
+import numpy as np
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 logger = logging.getLogger(__name__)
 

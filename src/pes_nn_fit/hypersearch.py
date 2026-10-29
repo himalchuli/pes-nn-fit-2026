@@ -1,8 +1,11 @@
-from .model import Pipeline
-import optuna
-from src.utils.helpers import sample_config
 import logging
 import shutil
+
+import optuna
+
+from pes_nn_fit.utils.helpers import sample_config
+
+from .model import Pipeline
 
 logger = logging.getLogger(__name__)
 
